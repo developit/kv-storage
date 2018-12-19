@@ -670,6 +670,64 @@ Notably, any [=typed arrays=] or {{DataView}}s will have been "unwrapped", and r
 
 <p class="note">For primitive string or number values, there's no need to worry about [=key round-tripping=]; the values are indistinguishable.</p>
 
+<h2 id="storageareaasynciterator" interface lt="StorageAreaAsyncIterator">The <code>StorageAreaAsyncIterator</code> class</h2>
+
+Upon evaluating the <a><code>std:async-local-storage</code></a> module, the {{StorageArea}} class must be created in the [=current Realm=]. The result must be equivalent to evaluating the following JavaScript code, with the following two exceptions:
+
+<ul>
+  <li><p>The constructor, method, and getter bodies must behave as specified below instead of being the no-ops shown in this code block.</p></li>
+  <li><p><a abstract-op>HostHasSourceTextAvailable</a> must return false for all function objects (i.e. the constructor, methods, and getter) created.</p></li>
+</ul>
+
+<pre highlight="js">
+  class StorageAreaAsyncIterator {
+    constructor()  { /* <a href="#storageareaasynciterator-constructor">see below</a> */ }
+    next()         { /* <a href="#storageareaasynciterator-next">see below</a> */ }
+  }
+</pre>
+
+Each {{StorageAreaAsyncIterator}} instance must also contain the following internal slots:
+
+<table>
+  <thead>
+    <tr>
+      <th>Internal Slot
+      <th>Description (<em>non-normative</em>)
+  </thead>
+  <tr>
+    <td>\[[StorageAreaAsyncIteratorQueue]]
+    <td>A list of JavaScript values to vend via the {{StorageAreaAsyncIterator/next()}} method
+  <tr>
+    <td>\[[Index]]
+    <td>The current index within \[[StorageAreaAsyncIteratorQueue]] being vended.
+</table>
+
+An object |obj| <dfn for="StorageAreaAsyncIterator">brand checks</dfn> as a {{StorageAreaAsyncIterator}} if |obj| has a \[[StorageAreaAsyncIteratorQueue]] internal slot and |obj|'s [=relevant realm=] is equal to the [=current realm=].
+
+To <dfn>create a storage area async iterator</dfn>, given a [=list=] |queue|:
+
+1. Let |result| be <a abstract-op>ObjectCreate</a>({{StorageAreaAsyncIterator}}'s original <code>prototype</code> value, the slots listed above).
+1. Set |result|.\[[StorageAreaAsyncIteratorQueue]] to |queue|.
+1. Set |result|.\[[Index]] to 0.
+1. Return |result|.
+
+<h3 id="storageareaasynciterator-constructor" constructor for="StorageAreaAsyncIterator" lt="constructor()">constructor()</h3>
+
+1. Throw a {{TypeError}}.
+
+<div class="note">
+  {{StorageAreaAsyncIterator}} instances cannot be constructed; that is, code such as
+
+  <pre highlight="js">new storage.keys().constructor();</pre>
+
+  will not work. Instead, {{StorageAreaAsyncIterator}} instances can only be created via {{StorageArea/keys()}}, {{StorageArea/values()}}, and {{StorageArea/entries()}}, which use the [=create a storage area async iterator=] operation.
+</div>
+
+<h3 id="storageareaasynciterator-next" method for="StorageAreaAsyncIterator" lt="next()">next()</h3>
+
+1. Let |iter| be this object.
+1. If |iter| does not [=StorageAreaAsyncIterator/brand check=], return [=a promise rejected with=] a {{TypeError}} exception.
+
 <h2 id="perfect-polyfill">Appendix: is this API perfectly layered?</h2>
 
 The APIs in this specification, being layered on top of Indexed DB as they are, are almost entirely well-layered, in the sense of building on low-level features in the way promoted by the <cite>Extensible Web Manifesto</cite>. (Indeed, the <a href="#class-definition-explanation">unusual class definition pattern</a> was motivated by a desire to further improve this layering.) However, it fails in two ways, both around ensuring the encapsulation of the implementation: [[EXTENSIBLE]]
