@@ -24,12 +24,16 @@ urlPrefix: https://tc39.github.io/ecma262/#; spec: ECMASCRIPT
   text: ToString; url: sec-tostring; type: abstract-op
   text: %ObjectPrototype%; url: sec-properties-of-the-object-prototype-object; type: interface
   text: CreateDataProperty; url: sec-createdataproperty; type: abstract-op
+  text: CreateIterResultObject; url: sec-createiterresultobject; type: abstract-op
+  text: NormalCompletion: url: sec-normalcompletion; type: abstract-op
   text: ObjectCreate; url: sec-objectcreate; type: abstract-op
+  text: ThrowCompletion; url: sec-throwcompletion; type: abstract-op
   text: Construct; url: sec-construct; type: abstract-op
   text: Type; url: sec-ecmascript-data-types-and-values; type: abstract-op
   text: IsArray; url: sec-isarray; type: abstract-op
   text: current Realm; url: current-realm; type: dfn
   text: typed array; url: sec-typedarray-objects; type: dfn
+  text: Completion Record; url: sec-completion-record-specification-type; type: dfn
 
 urlPrefix: https://tc39.github.io/Function-prototype-toString-revision/#; spec: FN-TOSTRING
   text: HostHasSourceTextAvailable; url: proposal-sec-hosthassourcetextavailable; type: abstract-op
@@ -445,20 +449,26 @@ To <dfn lt="deleting the database|delete the database">delete the database</dfn>
 <h3 id="storagearea-keys" method for="StorageArea">keys()</h3>
 
 <dl class="domintro non-normative">
-  <dt><code><var ignore>keys</var> = await |storage|.{{StorageArea/keys()|keys}}()</code>
+  <dt><code>for await (const |key| of |storage|.{{StorageArea/keys()|keys}}()) { ... }</code>
   <dd>
-    <p>Asynchronously retrieves an array containing the keys of all entries in this storage area.
+    <p>Retrieves an async iterator containing the keys of all entries in this storage area.
 
-    <p>Keys will be returned in [=key/ascending=] order; roughly, segregated by type, and then sorted within each type. They will be [=key round-tripped=] from their original form.
+    <p>Keys will be yielded in [=key/ascending=] order; roughly, segregated by type, and then sorted within each type. They will be [=key round-tripped=] from their original form.
 </dl>
 
 <div class="algorithm">
-  1. Return the result of [=performing a database operation=] given this object, "<code>readonly</code>", and the following steps operating on |transaction| and |store|:
+  1. Let |iter| be the result of [=creating a storage area async iterator=].
+  1. Let |area| be this object.
+  1. If |area| does not [=StorageArea/brand check=], [=queue/enqueue=] <a abstract-op>ThrowCompletion</a>(a new {{TypeError}}) in |iter|.\[[StorageAreaAsyncIteratorQueue]] and return |iter|.
+  1. Let |opPromise| be the result of [=performing a database operation=] given this object, "<code>readonly</code>", and the following steps operating on |transaction| and |store|:
     1. Let |request| be the result of performing the steps listed in the description of {{IDBObjectStore}}'s {{IDBObjectStore/getAllKeys()}} method on |store| given the argument undefined.
     1. Let |promise| be [=a new promise=].
     1. [=Add a simple event listener=] to |request| for "<code>success</code>" that [=resolves=] |promise| with |request|'s [=request/result=].
-    1. [=Add a simple event listener=] to |request| for "<code>error</code>" that [=rejects=] |promise| with |request|'s [=request/error=].
+    1. [=Add a simple event listener=] to |request| for "<code>error</code>" that [=queue/enqueues=] <a abstract-op>ThrowCompletion</a>(a new {{TypeError}}) in |iter|.\[[StorageAreaAsyncIteratorQueue]] and return |iter|.
     1. Return |promise|.
+  1. [=Upon rejection=] of |opPromise| with reason |r|,
+    1. [=queue/Enqueue=] <a abstract-op>ThrowCompletion</a>(|r|) in |iter|.\[[StorageAreaAsyncIteratorQueue]].
+  1. Return |iter|.
 </div>
 
 <h3 id="storagearea-values" method for="StorageArea">values()</h3>
@@ -672,6 +682,8 @@ Notably, any [=typed arrays=] or {{DataView}}s will have been "unwrapped", and r
 
 <h2 id="storageareaasynciterator" interface lt="StorageAreaAsyncIterator">The <code>StorageAreaAsyncIterator</code> class</h2>
 
+<p class="note">Much of this section is amenable to being generalized into a reusable primitive, probably via Web IDL. See <a href="https://github.com/heycam/webidl/issues/580">heycam/webidl#580</a>.</p>
+
 Upon evaluating the <a><code>std:async-local-storage</code></a> module, the {{StorageArea}} class must be created in the [=current Realm=]. The result must be equivalent to evaluating the following JavaScript code, with the following two exceptions:
 
 <ul>
@@ -696,19 +708,15 @@ Each {{StorageAreaAsyncIterator}} instance must also contain the following inter
   </thead>
   <tr>
     <td>\[[StorageAreaAsyncIteratorQueue]]
-    <td>A list of JavaScript values to vend via the {{StorageAreaAsyncIterator/next()}} method
-  <tr>
-    <td>\[[Index]]
-    <td>The current index within \[[StorageAreaAsyncIteratorQueue]] being vended.
+    <td>A [=queue=] of JavaScript [=Completion Records=] to vend via the {{StorageAreaAsyncIterator/next()}} method
 </table>
 
 An object |obj| <dfn for="StorageAreaAsyncIterator">brand checks</dfn> as a {{StorageAreaAsyncIterator}} if |obj| has a \[[StorageAreaAsyncIteratorQueue]] internal slot and |obj|'s [=relevant realm=] is equal to the [=current realm=].
 
-To <dfn>create a storage area async iterator</dfn>, given a [=list=] |queue|:
+To <dfn lt="create a storage area async iterator|creating a storage area async iterator">create a storage area async iterator</dfn>, given a [=list=] |queue|:
 
 1. Let |result| be <a abstract-op>ObjectCreate</a>({{StorageAreaAsyncIterator}}'s original <code>prototype</code> value, the slots listed above).
 1. Set |result|.\[[StorageAreaAsyncIteratorQueue]] to |queue|.
-1. Set |result|.\[[Index]] to 0.
 1. Return |result|.
 
 <h3 id="storageareaasynciterator-constructor" constructor for="StorageAreaAsyncIterator" lt="constructor()">constructor()</h3>
@@ -726,7 +734,23 @@ To <dfn>create a storage area async iterator</dfn>, given a [=list=] |queue|:
 <h3 id="storageareaasynciterator-next" method for="StorageAreaAsyncIterator" lt="next()">next()</h3>
 
 1. Let |iter| be this object.
-1. If |iter| does not [=StorageAreaAsyncIterator/brand check=], return [=a promise rejected with=] a {{TypeError}} exception.
+1. If |iter| does not [=StorageAreaAsyncIterator/brand check=], then return [=a promise rejected with=] a {{TypeError}} exception.
+1. Let |result| be [=a new promise=].
+1. If |iter|.\[[StorageAreaAsyncIteratorQueue]] [=queue/is empty=], then perform the following steps [=in parallel=]:
+  1. Wait until |iter|.\[[StorageAreaAsyncIteratorQueue]] has at least one item.
+  1. [=Queue a task=] on the [=database access task source=] to <a>finish nexting</a> given |iter| and |result|.
+1. Otherwise, [=finish nexting=] given |iter| and |result|.
+1. Return |result|.
+
+To <dfn>finish nexting</dfn> given a {{StorageAreaAsyncIterator}} |iter| and a promise |result|:
+
+1. Let |currentCompletion| be |iter|.\[[StorageAreaAsyncIteratorQueue]][0].
+1. If |currentCompletion|.\[[Type]] is throw, then [=reject=] |result| with |currentCompletion|.\[[Value]].
+1. Otherwise, if |currentCompletion|.\[[Type]] is return, then [=resolve=] |result| <a abstract-op>CreateIterResultObject</a>(undefined, true).
+1. Otherwise,
+  1. Assert: |currentCompletion|.\[[Type]] is normal.
+  1. [=Dequeue=] from |iter|.\[[StorageAreaAsyncIteratorQueue]].
+  1. [=Resolve=] |result| with <a abstract-op>CreateIterResultObject</a>(|currentCompletion|.\[[Value]], false).
 
 <h2 id="perfect-polyfill">Appendix: is this API perfectly layered?</h2>
 
