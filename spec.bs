@@ -25,7 +25,7 @@ urlPrefix: https://tc39.github.io/ecma262/#; spec: ECMASCRIPT
   text: %ObjectPrototype%; url: sec-properties-of-the-object-prototype-object; type: interface
   text: CreateDataProperty; url: sec-createdataproperty; type: abstract-op
   text: CreateIterResultObject; url: sec-createiterresultobject; type: abstract-op
-  text: NormalCompletion: url: sec-normalcompletion; type: abstract-op
+  text: NormalCompletion; url: sec-normalcompletion; type: abstract-op
   text: ObjectCreate; url: sec-objectcreate; type: abstract-op
   text: ThrowCompletion; url: sec-throwcompletion; type: abstract-op
   text: Construct; url: sec-construct; type: abstract-op
@@ -460,16 +460,17 @@ To <dfn lt="deleting the database|delete the database">delete the database</dfn>
   1. Let |iter| be the result of [=creating a storage area async iterator=].
   1. Let |area| be this object.
   1. If |area| does not [=StorageArea/brand check=], [=queue/enqueue=] <a abstract-op>ThrowCompletion</a>(a new {{TypeError}}) in |iter|.\[[StorageAreaAsyncIteratorQueue]] and return |iter|.
-  1. Let |opPromise| be the result of [=performing a database operation=] given this object, "<code>readonly</code>", and the following steps operating on |transaction| and |store|:
-    1. Let |request| be the result of performing the steps listed in the description of {{IDBObjectStore}}'s {{IDBObjectStore/getAllKeys()}} method on |store| given the argument undefined.
-    1. Let |promise| be [=a new promise=].
-    1. [=Add a simple event listener=] to |request| for "<code>success</code>" that [=resolves=] |promise| with |request|'s [=request/result=].
-    1. [=Add a simple event listener=] to |request| for "<code>error</code>" that [=queue/enqueues=] <a abstract-op>ThrowCompletion</a>(a new {{TypeError}}) in |iter|.\[[StorageAreaAsyncIteratorQueue]] and return |iter|.
-    1. Return |promise|.
-  1. [=Upon rejection=] of |opPromise| with reason |r|,
-    1. [=queue/Enqueue=] <a abstract-op>ThrowCompletion</a>(|r|) in |iter|.\[[StorageAreaAsyncIteratorQueue]].
+  1. Retrieve the keys from |area|'s corresponding {{IDBObjectStore}}, delivering them to |iter|.\[[StorageAreaAsyncIteratorQueue]], in a manner that respects the following constraints:
+    * Any key retrieval operations must be done through steps equivalent to [=performing a database operation=] on |area|, i.e. with an appropriate transaction and on the specified object store.
+    * Any errors in key retrieval must cause the corresponding exception |e| to be [=queue/enqueued=], as <a abstract-op>ThrowCompletion</a>(|e|), in |iter|.\[[StorageAreaAsyncIteratorQueue]].
+    * Unless errors are encountered, every key, after being [=convert a key to a value|converted to a value=] |keyValue|, must eventually be [=queue/enqueued=], as <a abstract-op>NormalCompletion</a>(|keyValue|), in |iter|.\[[StorageAreaAsyncIteratorQueue]].
+    * The keys must be enqueued in the same order as would be given by {{IDBObjectStore}}'s {{IDBObjectStore/getAllKeys()}} on |area|'s corresponding store, given the argument undefined.
+    * Once all keys are enqueued, the implementation must [=queue/enqueue=] the Completion { \[[Type]]: return, \[[Value]]: undefined } in |iter|.\[[StorageAreaAsyncIteratorQueue]].
+    * These steps may be performed as one or more [=tasks=]; such tasks should be queued on the [=database access task source=].
   1. Return |iter|.
 </div>
+
+<p class="note">The intent of the above style of specification is meant to allow implementations flexibility in how they deliver keys to the returned {{StorageAreaAsyncIterator}}, and thus ultimately to the caller. For example, a simple strategy could be to simply perform the equivalent of {{IDBObjectStore/getAllKeys()}} and enqueue all the resulting values (or the exception encountered). At the other extreme, an implementation could wait for each call to {{StorageAreaAsyncIterator/next()}} and perform a new transaction each time to retrieve the next key. In the middle, an implementation could use range queries to retrieve batches of keys at a time, avoiding both the potentially-excessive memory consumption of loading all keys into memory at once, and avoiding the overhead of too many transactions.</p>
 
 <h3 id="storagearea-values" method for="StorageArea">values()</h3>
 
